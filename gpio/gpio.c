@@ -37,9 +37,12 @@
 #include <wiringPi.h>
 #include <wpiExtensions.h>
 
+#ifdef ENABLE_GERTBOARD_COMPATIBILITY
 #include <gertboard.h>
+#endif //ENABLE_GERTBOARD_COMPATIBILITY
+#ifdef ENABLE_PIFACE_COMPATIBILITY
 #include <piFace.h>
-
+#endif //ENABLE_PIFACE_COMPATIBILITY
 #include "version.h"
 
 extern int wiringPiDebug ;
@@ -62,7 +65,11 @@ int wpMode ;
 char *usage = "Usage: gpio -v\n"
               "       gpio -h\n"
               "       gpio [-g|-1] [-x extension:params] ...\n"
+#ifndef ENABLE_PIFACE_COMPATIBILITY
+              "       gpio <read/write/wb> ...\n"
+#else //ENABLE_PIFACE_COMPATIBILITY
               "       gpio [-p] <read/write/wb> ...\n"
+#endif //ENABLE_PIFCAE_COMPATIBILITY
               "       gpio <read/write/aread/awritewb/pwm/clock/mode> ...\n"
 	      "       gpio readall/reset\n"
 	      "       gpio unexportall/exports\n"
@@ -75,9 +82,12 @@ char *usage = "Usage: gpio -v\n"
 	      "       gpio load spi/i2c\n"
 	      "       gpio unload spi/i2c\n"
 	      "       gpio i2cd/i2cdetect\n"
-	      "       gpio usbp high/low\n"
-	      "       gpio gbr <channel>\n"
-	      "       gpio gbw <channel> <value>" ;	// No trailing newline needed here.
+	      "       gpio usbp high/low"
+#ifdef ENABLE_GERTBOARD_COMPATIBILITY
+	      "\n       gpio gbr <channel>\n"
+	      "       gpio gbw <channel> <value>"
+#endif //ENABLE_GERTBOARD_COMPATIBILITY
+	       ;	// No trailing newline needed here.
 
 
 #ifdef	NOT_FOR_NOW
@@ -116,7 +126,7 @@ static void changeOwner (char *cmd, char *file)
   if (chown (file, uid, gid) != 0)
   {
     if (errno == ENOENT)	// Warn that it's not there
-      fprintf (stderr, "%s: Warning (not an error, do not report): File not present: %s\n", cmd, file) ;
+      fprintf (stderr, "%s: Warning (not an error): File not present: %s\n", cmd, file) ;
     else
       fprintf (stderr, "%s: Warning (not an error): Unable to change ownership of %s: %s\n", cmd, file, strerror (errno)) ;
   }
@@ -163,22 +173,6 @@ static int moduleLoaded (char *modName)
  *********************************************************************************
  */
 
-static void checkDevTree (char *argv [])
-{
-  struct stat statBuf ;
-
-  if (stat ("/proc/device-tree", &statBuf) == 0)	// We're on a devtree system ...
-  {
-    fprintf (stderr,
-"%s: Unable to load/unload modules as this Pi has the device tree enabled.\n"
-"  You need to run the raspi-config program (as root) and select the\n"
-"  modules (SPI or I2C) that you wish to load/unload there and reboot.\n"
-"  There is more information here:\n"
-"      https://www.raspberrypi.org/forums/viewtopic.php?f=28&t=97314\n", argv [0]) ;
-    exit (1) ;
-  }
-}
-
 static void _doLoadUsage (char *argv [])
 {
   fprintf (stderr, "Usage: %s load <spi/i2c> [I2C baudrate in Kb/sec]\n", argv [0]) ;
@@ -191,8 +185,6 @@ static void doLoad (int argc, char *argv [])
   char cmd [80] ;
   char *file1, *file2 ;
   char args1 [32], args2 [32] ;
-
-  checkDevTree (argv) ;
 
   if (argc < 3)
     _doLoadUsage (argv) ;
@@ -268,8 +260,6 @@ static void doUnLoad (int argc, char *argv [])
 {
   char *module1, *module2 ;
   char cmd [80] ;
-
-  checkDevTree (argv) ;
 
   if (argc != 3)
     _doUnLoadUsage (argv) ;
@@ -804,7 +794,7 @@ static void doUsbP (int argc, char *argv [])
   exit (1) ;
 }
 
-
+#ifdef ENABLE_GERTBOARD_COMPATIBILITY
 /*
  * doGbw:
  *	gpio gbw channel value
@@ -846,7 +836,6 @@ static void doGbw (int argc, char *argv [])
   analogWrite (64 + channel, value) ;
 }
 
-
 /*
  * doGbr:
  *	gpio gbr channel
@@ -880,6 +869,7 @@ static void doGbr (int argc, char *argv [])
 
   printf ("%d\n", analogRead (64 + channel)) ;
 }
+#endif //ENABLE_GERTBOARD_COMPATIBILITY
 
 
 /*
@@ -1158,8 +1148,6 @@ int main (int argc, char *argv [])
 {
   int i ;
   int model, rev, mem, maker, overVolted ;
-  struct stat statBuf ;
-
 
   if (getenv ("WIRINGPI_DEBUG") != NULL)
   {
@@ -1175,7 +1163,7 @@ int main (int argc, char *argv [])
 
 // Help
 
-  if (strcasecmp (argv [1], "-h") == 0)
+  if (strcasecmp (argv [1], "-h") == 0 || strcasecmp (argv [1], "--help") == 0)
   {
     printf ("%s: %s\n", argv [0], usage) ;
     return 0 ;
@@ -1216,20 +1204,6 @@ int main (int argc, char *argv [])
       printf ("Raspberry Pi Details:\n") ;
       printf ("  Type: %s, Revision: %s, Memory: %dMB, Maker: %s %s\n", 
 	  piModelNames [model], piRevisionNames [rev], mem, piMakerNames [maker], overVolted ? "[OV]" : "") ;
-
-// Check for device tree
-
-      if (stat ("/proc/device-tree", &statBuf) == 0)	// We're on a devtree system ...
-	printf ("  Device tree is enabled.\n") ;
-
-      if (stat ("/dev/gpiomem", &statBuf) == 0)		// User level GPIO is GO
-      {
-	printf ("  This Raspberry Pi supports user-level GPIO access.\n") ;
-	printf ("    -> See the man-page for more details\n") ;
-      }
-      else
-	printf ("  * Root or sudo required for GPIO access.\n") ;
-      
     }
     return 0 ;
   }
@@ -1274,10 +1248,12 @@ int main (int argc, char *argv [])
   if (strcasecmp (argv [1], "load"   ) == 0)	{ doLoad   (argc, argv) ; return 0 ; }
   if (strcasecmp (argv [1], "unload" ) == 0)	{ doUnLoad (argc, argv) ; return 0 ; }
 
+#ifdef ENABLE_GERTBOARD_COMPATIBILITY
 // Gertboard commands
 
   if (strcasecmp (argv [1], "gbr" ) == 0)	{ doGbr (argc, argv) ; return 0 ; }
   if (strcasecmp (argv [1], "gbw" ) == 0)	{ doGbw (argc, argv) ; return 0 ; }
+#endif //ENABLE_GERTBOARD_COMPATIBILITY
 
 // Check for -g argument
 
@@ -1303,6 +1279,7 @@ int main (int argc, char *argv [])
     wpMode = WPI_MODE_PHYS ;
   }
 
+#ifdef ENABLE_PIFACE_COMPATIBILITY
 // Check for -p argument for PiFace
 
   else if (strcasecmp (argv [1], "-p") == 0)
@@ -1314,6 +1291,7 @@ int main (int argc, char *argv [])
     --argc ;
     wpMode = WPI_MODE_PIFACE ;
   }
+#endif //ENABLE_PIFACE_COMPATIBILITY
 
 // Default to wiringPi mode
 

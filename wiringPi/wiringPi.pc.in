@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include/wiringPi
+
+Name: wiringPi
+Description: Library to manipulate Raspberry Pi's GPIO
+Version: @VERSION_NUMBER@
+Libs: -L${libdir} -lwiringPi 
+Cflags: -I${includedir} 
+
